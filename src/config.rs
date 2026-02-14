@@ -1,5 +1,6 @@
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
+use std::io::{self, IsTerminal, Write};
 use std::path::PathBuf;
 
 pub struct Config {
@@ -46,11 +47,11 @@ pub fn load_config() -> Result<Config> {
 
     let username = match username {
         Some(u) if !u.is_empty() => u,
-        _ => bail!("No username provided. Set QOBUZ_USERNAME or add username to ~/.config/qoget/config.toml"),
+        _ => prompt_username()?,
     };
     let password = match password {
         Some(p) if !p.is_empty() => p,
-        _ => bail!("No password provided. Set QOBUZ_PASSWORD or add password to ~/.config/qoget/config.toml"),
+        _ => prompt_password()?,
     };
 
     // app_id/app_secret: only from config file (no env var override needed)
@@ -60,4 +61,38 @@ pub fn load_config() -> Result<Config> {
         app_id: file_cfg.app_id,
         app_secret: file_cfg.app_secret,
     })
+}
+
+fn prompt_username() -> Result<String> {
+    if !io::stdin().is_terminal() {
+        bail!(
+            "No username provided. Set QOBUZ_USERNAME or add username to \
+             ~/.config/qoget/config.toml"
+        );
+    }
+    eprint!("Qobuz email: ");
+    io::stderr().flush()?;
+    let mut input = String::new();
+    io::stdin().read_line(&mut input)?;
+    let trimmed = input.trim().to_string();
+    if trimmed.is_empty() {
+        bail!("Username cannot be empty");
+    }
+    Ok(trimmed)
+}
+
+fn prompt_password() -> Result<String> {
+    if !io::stdin().is_terminal() {
+        bail!(
+            "No password provided. Set QOBUZ_PASSWORD or add password to \
+             ~/.config/qoget/config.toml"
+        );
+    }
+    eprint!("Qobuz password: ");
+    io::stderr().flush()?;
+    let password = rpassword::read_password().context("Failed to read password")?;
+    if password.is_empty() {
+        bail!("Password cannot be empty");
+    }
+    Ok(password)
 }
