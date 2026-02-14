@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use crate::models::{
-    Album, DownloadTask, PurchaseList, SkipReason, SkippedTrack, SyncPlan, Track, TrackId,
+    Album, AlbumId, DownloadTask, PurchaseList, SkipReason, SkippedTrack, SyncPlan, Track, TrackId,
 };
 use crate::path::track_path;
 
@@ -24,7 +24,7 @@ pub async fn scan_existing(tasks: &[DownloadTask]) -> ExistingFiles {
     ExistingFiles(existing)
 }
 
-/// Build a sync plan from purchases. Pure function — no I/O.
+/// Build a sync plan from pre-built download tasks. Pure function — no I/O.
 ///
 /// Deduplicates by TrackId: if the same track appears in multiple purchases
 /// (e.g., as a standalone single and within an album), keeps the album version
@@ -34,43 +34,18 @@ pub async fn scan_existing(tasks: &[DownloadTask]) -> ExistingFiles {
 /// - existing files (non-empty) → SkipReason::AlreadyExists
 /// - dry_run mode → SkipReason::DryRun
 pub fn build_sync_plan(
-    purchases: &PurchaseList,
-    base_dir: &Path,
+    tasks: Vec<DownloadTask>,
     existing: &ExistingFiles,
     dry_run: bool,
 ) -> SyncPlan {
-    // Collect all (track, album) pairs
-    let mut all_tasks: Vec<DownloadTask> = Vec::new();
-
-    for album in &purchases.albums {
-        if let Some(ref paginated) = album.tracks {
-            for track in &paginated.items {
-                let target = track_path(base_dir, album, track);
-                all_tasks.push(DownloadTask {
-                    track: track.clone(),
-                    album: album.clone(),
-                    target_path: target,
-                });
-            }
-        }
-    }
-
-    // Standalone track purchases
-    for track in &purchases.tracks {
-        let target = track_path_standalone(base_dir, track);
-        all_tasks.push(DownloadTask {
-            track: track.clone(),
-            album: standalone_album(track),
-            target_path: target,
-        });
-    }
-
     // Deduplicate by TrackId: prefer album version (album with tracks_count > 1)
     let mut best: HashMap<TrackId, DownloadTask> = HashMap::new();
-    for task in all_tasks {
+    for task in tasks {
         let id = task.track.id;
         match best.get(&id) {
-            Some(existing) if existing.album.tracks_count > 1 && task.album.tracks_count <= 1 => {
+            Some(existing_task)
+                if existing_task.album.tracks_count > 1 && task.album.tracks_count <= 1 =>
+            {
                 // Keep the existing album version over a standalone
             }
             _ => {
@@ -110,45 +85,48 @@ pub fn build_sync_plan(
     }
 }
 
-/// Build a preliminary list of download tasks (before skip/dry-run classification).
-/// Used to get target paths for scan_existing.
-pub fn collect_tasks(purchases: &PurchaseList, base_dir: &Path) -> Vec<DownloadTask> {
+/// Build a list of download tasks from purchases.
+/// Used to get target paths for scan_existing and as input to build_sync_plan.
+pub fn collect_tasks(
+    purchases: &PurchaseList,
+    base_dir: &Path,
+    ext: &'static str,
+) -> Vec<DownloadTask> {
     let mut all_tasks: Vec<DownloadTask> = Vec::new();
 
     for album in &purchases.albums {
         if let Some(ref paginated) = album.tracks {
             for track in &paginated.items {
-                let target = track_path(base_dir, album, track);
+                let target = track_path(base_dir, album, track, ext);
                 all_tasks.push(DownloadTask {
                     track: track.clone(),
                     album: album.clone(),
                     target_path: target,
+                    file_extension: ext,
                 });
             }
         }
     }
 
+    // Standalone track purchases
     for track in &purchases.tracks {
-        let target = track_path_standalone(base_dir, track);
+        let album = standalone_album(track);
+        let target = track_path(base_dir, &album, track, ext);
         all_tasks.push(DownloadTask {
             track: track.clone(),
-            album: standalone_album(track),
+            album,
             target_path: target,
+            file_extension: ext,
         });
     }
 
     all_tasks
 }
 
-/// Build path for a standalone track purchase (no album context from API).
-fn track_path_standalone(base_dir: &Path, track: &Track) -> PathBuf {
-    track_path(base_dir, &standalone_album(track), track)
-}
-
 /// Create a minimal album struct for standalone track purchases.
 fn standalone_album(track: &Track) -> Album {
     Album {
-        id: crate::models::AlbumId(format!("standalone-{}", track.id)),
+        id: AlbumId(format!("standalone-{}", track.id)),
         title: track.title.clone(),
         version: None,
         artist: track.performer.clone(),

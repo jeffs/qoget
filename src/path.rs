@@ -47,8 +47,8 @@ pub fn sanitize_component(s: &str) -> String {
 }
 
 /// Build the target path for a track file:
-///   base / album_artist / album_title [/ Disc N] / NN - [Track Artist - ] Title.mp3
-pub fn track_path(base: &Path, album: &Album, track: &Track) -> PathBuf {
+///   base / album_artist / album_title [/ Disc N] / NN - [Track Artist - ] Title{ext}
+pub fn track_path(base: &Path, album: &Album, track: &Track, ext: &str) -> PathBuf {
     let artist_dir = sanitize_component(&album.artist.name);
     let album_dir = sanitize_component(&album.title);
 
@@ -66,9 +66,9 @@ pub fn track_path(base: &Path, album: &Album, track: &Track) -> PathBuf {
     let num = track.track_number.0;
     let filename = if is_compilation {
         let track_artist = sanitize_component(&track.performer.name);
-        format!("{num:02} - {track_artist} - {track_title}.mp3")
+        format!("{num:02} - {track_artist} - {track_title}{ext}")
     } else {
-        format!("{num:02} - {track_title}.mp3")
+        format!("{num:02} - {track_title}{ext}")
     };
 
     path.join(filename)

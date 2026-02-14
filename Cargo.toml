@@ -12,9 +12,10 @@ futures = "0.3"
 indicatif = "0.17"
 md5 = "0.7"
 regex = "1"
-reqwest = { version = "0.12", features = ["json", "stream"] }
+reqwest = { version = "0.12", features = ["json", "stream", "cookies"] }
 rpassword = "7"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tokio = { version = "1.47", features = ["rt-multi-thread", "macros", "fs"] }
 toml = "0.8"
+zip = "2"

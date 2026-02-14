@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -5,8 +6,13 @@ use futures::stream::{self, StreamExt};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use tokio::io::AsyncWriteExt;
 
+use crate::bandcamp::{self, BandcampClient, BandcampPurchases};
 use crate::client::QobuzClient;
-use crate::models::{DownloadError, DownloadTask, SyncPlan, SyncResult};
+use crate::models::{
+    Album, AlbumId, Artist, BandcampCollectionItem, BandcampDownloadError, BandcampSyncResult,
+    DiscNumber, DownloadError, DownloadTask, SyncPlan, SyncResult, Track, TrackId, TrackNumber,
+};
+use crate::path::{sanitize_component, track_path};
 
 const CONCURRENT_DOWNLOADS: usize = 4;
 const FORMAT_ID_MP3_320: u8 = 5;
@@ -41,7 +47,8 @@ pub async fn execute_downloads(client: &QobuzClient, plan: SyncPlan) -> Result<S
                     Ok(()) => Ok(task),
                     Err(e) => {
                         // Clean up temp file on failure
-                        let temp_path = task.target_path.with_extension("mp3.tmp");
+                        let ext_no_dot = &task.file_extension[1..];
+                        let temp_path = task.target_path.with_extension(format!("{ext_no_dot}.tmp"));
                         let _ = tokio::fs::remove_file(&temp_path).await;
                         Err(DownloadError {
                             task,
@@ -90,7 +97,8 @@ async fn download_one(
     }
 
     // Download to temp file in same directory, then rename
-    let temp_path = task.target_path.with_extension("mp3.tmp");
+    let ext_no_dot = &task.file_extension[1..];
+    let temp_path = task.target_path.with_extension(format!("{ext_no_dot}.tmp"));
 
     let resp = client.http().get(&url).send().await?;
 
@@ -122,4 +130,209 @@ async fn download_one(
     tokio::fs::rename(&temp_path, &task.target_path).await?;
 
     Ok(())
+}
+
+// --- Bandcamp download dispatch ---
+
+/// Execute Bandcamp downloads: fetch download pages, download ZIPs, extract and place tracks.
+///
+/// Operates at the album/item level (not individual tracks) since Bandcamp delivers albums
+/// as ZIP archives. For incremental sync, albums with existing .m4a files are skipped.
+pub async fn execute_bandcamp_downloads(
+    client: &BandcampClient,
+    purchases: &BandcampPurchases,
+    target_dir: &Path,
+    dry_run: bool,
+) -> Result<BandcampSyncResult> {
+    let multi = Arc::new(MultiProgress::new());
+    let overall = multi.add(ProgressBar::new(purchases.items.len() as u64));
+    overall.set_style(
+        ProgressStyle::default_bar()
+            .template("[{pos}/{len}] {msg}")
+            .expect("valid template"),
+    );
+
+    let mut result = BandcampSyncResult {
+        downloaded: 0,
+        skipped: 0,
+        would_download: 0,
+        failed: Vec::new(),
+    };
+
+    let temp_dir = target_dir.join(".qoget-temp");
+
+    for item in &purchases.items {
+        let desc = format!("{} - {}", item.band_name, item.item_title);
+        overall.set_message(desc.clone());
+
+        // Look up redownload URL by "{sale_item_type}{sale_item_id}" key
+        let key = format!("{}{}", item.sale_item_type, item.sale_item_id);
+        let redownload_url = match purchases.redownload_urls.get(&key) {
+            Some(url) => url,
+            None => {
+                result.failed.push(BandcampDownloadError {
+                    description: desc,
+                    error: format!("No redownload URL found (key: {key})"),
+                });
+                overall.inc(1);
+                continue;
+            }
+        };
+
+        // Build album struct for path computation
+        let album = Album {
+            id: AlbumId(format!("bc-{}", item.item_id)),
+            title: item.item_title.clone(),
+            version: None,
+            artist: Artist {
+                id: item.sale_item_id,
+                name: item.band_name.clone(),
+            },
+            media_count: 1,
+            tracks_count: 0,
+            tracks: None,
+        };
+
+        // Check if already synced
+        if is_already_synced(target_dir, item, &album).await {
+            result.skipped += 1;
+            overall.inc(1);
+            continue;
+        }
+
+        if dry_run {
+            println!("{}", desc);
+            result.would_download += 1;
+            overall.inc(1);
+            continue;
+        }
+
+        // Download
+        tokio::fs::create_dir_all(&temp_dir).await?;
+        match download_bandcamp_item(client, redownload_url, item, &album, target_dir, &temp_dir)
+            .await
+        {
+            Ok(count) => result.downloaded += count,
+            Err(e) => {
+                result.failed.push(BandcampDownloadError {
+                    description: desc,
+                    error: format!("{e:#}"),
+                });
+            }
+        }
+
+        // Clean up temp files from this item
+        let _ = tokio::fs::remove_dir_all(&temp_dir).await;
+
+        overall.inc(1);
+    }
+
+    overall.finish_and_clear();
+
+    Ok(result)
+}
+
+/// Check if a Bandcamp item is already synced locally.
+async fn is_already_synced(
+    target_dir: &Path,
+    item: &BandcampCollectionItem,
+    album: &Album,
+) -> bool {
+    if item.sale_item_type == "a" {
+        // Album: check if the album directory contains any .m4a files
+        let album_dir = target_dir
+            .join(sanitize_component(&album.artist.name))
+            .join(sanitize_component(&album.title));
+        has_m4a_files(&album_dir).await
+    } else {
+        // Track: check if the specific target file exists
+        let track = Track {
+            id: TrackId(item.item_id),
+            title: item.item_title.clone(),
+            track_number: TrackNumber(1),
+            media_number: DiscNumber(1),
+            duration: 0,
+            performer: album.artist.clone(),
+            isrc: None,
+        };
+        let target = track_path(target_dir, album, &track, ".m4a");
+        tokio::fs::metadata(&target).await.is_ok()
+    }
+}
+
+/// Download and extract a single Bandcamp item (album ZIP or single track).
+async fn download_bandcamp_item(
+    client: &BandcampClient,
+    redownload_url: &str,
+    item: &BandcampCollectionItem,
+    album: &Album,
+    target_dir: &Path,
+    temp_dir: &Path,
+) -> Result<usize> {
+    // Fetch download page and get aac-hi URL
+    let info = client.get_download_info(redownload_url).await?;
+    let url = bandcamp::aac_hi_url(&info)?;
+
+    // Download and extract
+    let extracted = client.download_and_extract(url, temp_dir).await?;
+    let mut count = 0;
+
+    if item.sale_item_type == "a" {
+        // Album: use extracted track metadata for paths
+        for ext_track in extracted {
+            let track = Track {
+                id: TrackId(
+                    item.item_id
+                        .wrapping_mul(1000)
+                        .wrapping_add(ext_track.track_number as u64),
+                ),
+                title: ext_track.title,
+                track_number: TrackNumber(ext_track.track_number),
+                media_number: DiscNumber(1),
+                duration: 0,
+                performer: album.artist.clone(),
+                isrc: None,
+            };
+            let target = track_path(target_dir, album, &track, ".m4a");
+            if let Some(parent) = target.parent() {
+                tokio::fs::create_dir_all(parent).await?;
+            }
+            tokio::fs::rename(&ext_track.temp_path, &target).await?;
+            count += 1;
+        }
+    } else {
+        // Single track: use item metadata for consistent path
+        let track = Track {
+            id: TrackId(item.item_id),
+            title: item.item_title.clone(),
+            track_number: TrackNumber(1),
+            media_number: DiscNumber(1),
+            duration: 0,
+            performer: album.artist.clone(),
+            isrc: None,
+        };
+        let target = track_path(target_dir, album, &track, ".m4a");
+        if let Some(parent) = target.parent() {
+            tokio::fs::create_dir_all(parent).await?;
+        }
+        if let Some(ext_track) = extracted.into_iter().next() {
+            tokio::fs::rename(&ext_track.temp_path, &target).await?;
+            count += 1;
+        }
+    }
+
+    Ok(count)
+}
+
+/// Check if a directory contains any .m4a files (non-recursive).
+async fn has_m4a_files(dir: &Path) -> bool {
+    let Ok(mut entries) = tokio::fs::read_dir(dir).await else {
+        return false;
+    };
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        if entry.path().extension().and_then(|e| e.to_str()) == Some("m4a") {
+            return true;
+        }
+    }
+    false
 }

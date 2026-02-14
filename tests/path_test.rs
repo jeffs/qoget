@@ -33,7 +33,7 @@ fn single_disc_album() {
     let track = make_track("Breathe", 2, 1, "Pink Floyd");
     let base = Path::new("/music");
 
-    let path = track_path(base, &album, &track);
+    let path = track_path(base, &album, &track, ".mp3");
     assert_eq!(
         path,
         Path::new("/music/Pink Floyd/The Dark Side of the Moon/02 - Breathe.mp3")
@@ -46,7 +46,7 @@ fn multi_disc_album() {
     let track = make_track("Birthday", 1, 2, "The Beatles");
     let base = Path::new("/music");
 
-    let path = track_path(base, &album, &track);
+    let path = track_path(base, &album, &track, ".mp3");
     assert_eq!(
         path,
         Path::new("/music/The Beatles/White Album/Disc 2/01 - Birthday.mp3")
@@ -59,10 +59,36 @@ fn compilation_album() {
     let track = make_track("So What", 1, 1, "Miles Davis");
     let base = Path::new("/music");
 
-    let path = track_path(base, &album, &track);
+    let path = track_path(base, &album, &track, ".mp3");
     assert_eq!(
         path,
         Path::new("/music/Various Artists/Jazz Classics/01 - Miles Davis - So What.mp3")
+    );
+}
+
+#[test]
+fn m4a_extension() {
+    let album = make_album("Deafheaven", "Sunbather", 1);
+    let track = make_track("Dream House", 1, 1, "Deafheaven");
+    let base = Path::new("/music");
+
+    let path = track_path(base, &album, &track, ".m4a");
+    assert_eq!(
+        path,
+        Path::new("/music/Deafheaven/Sunbather/01 - Dream House.m4a")
+    );
+}
+
+#[test]
+fn m4a_compilation() {
+    let album = make_album("Various Artists", "Bandcamp Compilation", 1);
+    let track = make_track("Intro", 1, 1, "Some Band");
+    let base = Path::new("/music");
+
+    let path = track_path(base, &album, &track, ".m4a");
+    assert_eq!(
+        path,
+        Path::new("/music/Various Artists/Bandcamp Compilation/01 - Some Band - Intro.m4a")
     );
 }
 

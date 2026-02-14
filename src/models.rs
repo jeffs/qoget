@@ -1,6 +1,33 @@
-use serde::Deserialize;
+use std::collections::HashMap;
 use std::fmt;
 use std::path::PathBuf;
+
+use serde::{Deserialize, Deserializer};
+
+fn null_as_default<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Default + Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(|opt| opt.unwrap_or_default())
+}
+
+// --- Service enum ---
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Service {
+    Qobuz,
+    Bandcamp,
+}
+
+impl fmt::Display for Service {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Service::Qobuz => write!(f, "Qobuz"),
+            Service::Bandcamp => write!(f, "Bandcamp"),
+        }
+    }
+}
 
 // --- Newtype wrappers ---
 
@@ -135,6 +162,7 @@ pub struct DownloadTask {
     pub track: Track,
     pub album: Album,
     pub target_path: PathBuf,
+    pub file_extension: &'static str,
 }
 
 pub enum SkipReason {
@@ -163,4 +191,61 @@ pub struct SyncResult {
     pub succeeded: Vec<DownloadTask>,
     pub failed: Vec<DownloadError>,
     pub skipped: Vec<SkippedTrack>,
+}
+
+// --- Bandcamp API response types ---
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct BandcampCollectionResponse {
+    pub more_available: bool,
+    #[serde(deserialize_with = "null_as_default")]
+    pub last_token: String,
+    #[serde(deserialize_with = "null_as_default")]
+    pub redownload_urls: HashMap<String, String>,
+    pub items: Vec<BandcampCollectionItem>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct BandcampCollectionItem {
+    #[serde(deserialize_with = "null_as_default")]
+    pub band_name: String,
+    #[serde(deserialize_with = "null_as_default")]
+    pub item_title: String,
+    pub item_id: u64,
+    #[serde(deserialize_with = "null_as_default")]
+    pub item_type: String,
+    #[serde(deserialize_with = "null_as_default")]
+    pub sale_item_type: String,
+    pub sale_item_id: u64,
+    #[serde(deserialize_with = "null_as_default")]
+    pub token: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct BandcampDownloadInfo {
+    pub item_id: u64,
+    pub title: String,
+    pub artist: String,
+    pub download_type: String,
+    pub downloads: HashMap<String, BandcampDownloadFormat>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct BandcampDownloadFormat {
+    pub url: String,
+    pub size_mb: String,
+}
+
+// --- Bandcamp sync result ---
+
+pub struct BandcampSyncResult {
+    pub downloaded: usize,
+    pub skipped: usize,
+    pub would_download: usize,
+    pub failed: Vec<BandcampDownloadError>,
+}
+
+pub struct BandcampDownloadError {
+    pub description: String,
+    pub error: String,
 }
