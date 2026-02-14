@@ -68,9 +68,7 @@ fn parse_service(s: &str) -> Result<models::Service> {
     match s.to_lowercase().as_str() {
         "qobuz" => Ok(models::Service::Qobuz),
         "bandcamp" => Ok(models::Service::Bandcamp),
-        _ => bail!(
-            "Unknown service '{s}'. Supported services: qobuz, bandcamp"
-        ),
+        _ => bail!("Unknown service '{s}'. Supported services: qobuz, bandcamp"),
     }
 }
 
@@ -86,8 +84,7 @@ async fn run_sync(
         None => None,
     };
 
-    let should_run =
-        |svc: models::Service| -> bool { service_filter.is_none_or(|f| f == svc) };
+    let should_run = |svc: models::Service| -> bool { service_filter.is_none_or(|f| f == svc) };
 
     let has_qobuz = cfg.qobuz.is_some();
     let has_bandcamp = cfg.bandcamp.is_some();

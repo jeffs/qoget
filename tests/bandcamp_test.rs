@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use qoget::bandcamp::{parse_zip_track_filename, to_purchase_list, BandcampPurchases};
+use qoget::bandcamp::{BandcampPurchases, parse_zip_track_filename, to_purchase_list};
 use qoget::models::{
     BandcampCollectionItem, BandcampCollectionResponse, BandcampDownloadFormat,
     BandcampDownloadInfo,

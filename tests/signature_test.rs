@@ -2,14 +2,24 @@ use qoget::client::generate_request_sig;
 
 #[test]
 fn signature_with_known_inputs() {
-    let sig = generate_request_sig(216020864, 5, "1707900000", "abcdef1234567890abcdef1234567890");
+    let sig = generate_request_sig(
+        216020864,
+        5,
+        "1707900000",
+        "abcdef1234567890abcdef1234567890",
+    );
 
     // Verify it's a 32-char hex string (MD5 digest)
     assert_eq!(sig.len(), 32);
     assert!(sig.chars().all(|c| c.is_ascii_hexdigit()));
 
     // Verify determinism: same inputs produce same output
-    let sig2 = generate_request_sig(216020864, 5, "1707900000", "abcdef1234567890abcdef1234567890");
+    let sig2 = generate_request_sig(
+        216020864,
+        5,
+        "1707900000",
+        "abcdef1234567890abcdef1234567890",
+    );
     assert_eq!(sig, sig2);
 }
 

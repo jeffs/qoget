@@ -48,15 +48,17 @@ pub async fn extract_credentials(http_client: &reqwest::Client) -> Result<AppCre
         .context("Could not extract app_id from bundle.js")?;
 
     // Step 4: Extract seed/timezone pairs
-    let seed_re =
-        Regex::new(r#"[a-z]\.initialSeed\("([\w=]+)",window\.utimezone\.([a-z]+)\)"#)?;
+    let seed_re = Regex::new(r#"[a-z]\.initialSeed\("([\w=]+)",window\.utimezone\.([a-z]+)\)"#)?;
     let mut seed_pairs: Vec<(String, String)> = seed_re
         .captures_iter(&bundle)
         .map(|c| (c[1].to_string(), c[2].to_string()))
         .collect();
 
     if seed_pairs.len() < 2 {
-        bail!("Expected at least 2 seed/timezone pairs, found {}", seed_pairs.len());
+        bail!(
+            "Expected at least 2 seed/timezone pairs, found {}",
+            seed_pairs.len()
+        );
     }
 
     // Step 5: Swap the first two pairs (ternary condition always evaluates to false)
@@ -110,7 +112,10 @@ pub async fn extract_credentials(http_client: &reqwest::Client) -> Result<AppCre
         }
     }
 
-    bail!("No valid app_secret found among {} candidates", candidate_secrets.len())
+    bail!(
+        "No valid app_secret found among {} candidates",
+        candidate_secrets.len()
+    )
 }
 
 /// Validate a candidate secret by making a test request to /track/getFileUrl.

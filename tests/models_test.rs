@@ -1,6 +1,4 @@
-use qoget::models::{
-    Album, FileUrlResponse, LoginResponse, PurchaseResponse, TrackId, AlbumId,
-};
+use qoget::models::{Album, AlbumId, FileUrlResponse, LoginResponse, PurchaseResponse, TrackId};
 
 #[test]
 fn parse_login_response() {

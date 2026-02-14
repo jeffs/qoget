@@ -8,7 +8,10 @@ fn make_album(artist: &str, title: &str, media_count: u8) -> Album {
         id: AlbumId("test-album".to_string()),
         title: title.to_string(),
         version: None,
-        artist: Artist { id: 1, name: artist.to_string() },
+        artist: Artist {
+            id: 1,
+            name: artist.to_string(),
+        },
         media_count,
         tracks_count: 10,
         tracks: None,
@@ -22,7 +25,10 @@ fn make_track(title: &str, number: u8, disc: u8, performer: &str) -> Track {
         track_number: TrackNumber(number),
         media_number: DiscNumber(disc),
         duration: 200,
-        performer: Artist { id: 2, name: performer.to_string() },
+        performer: Artist {
+            id: 2,
+            name: performer.to_string(),
+        },
         isrc: None,
     }
 }

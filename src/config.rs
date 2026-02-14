@@ -164,8 +164,7 @@ pub fn parse_toml_config(content: &str) -> Result<Config> {
 /// callers that need Qobuz can call `prompt_qobuz_credentials()` separately.
 pub fn load_config() -> Result<Config> {
     let file_contents = std::fs::read_to_string(config_path()).unwrap_or_default();
-    let fc: FileConfig =
-        toml::from_str(&file_contents).context("Failed to parse config file")?;
+    let fc: FileConfig = toml::from_str(&file_contents).context("Failed to parse config file")?;
 
     Ok(Config {
         qobuz: resolve_qobuz(&fc),
@@ -177,8 +176,7 @@ pub fn load_config() -> Result<Config> {
 /// values already resolved from env/file.
 pub fn prompt_qobuz_credentials() -> Result<QobuzConfig> {
     let file_contents = std::fs::read_to_string(config_path()).unwrap_or_default();
-    let fc: FileConfig =
-        toml::from_str(&file_contents).context("Failed to parse config file")?;
+    let fc: FileConfig = toml::from_str(&file_contents).context("Failed to parse config file")?;
 
     let username = std::env::var("QOBUZ_USERNAME")
         .ok()

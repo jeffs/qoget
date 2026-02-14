@@ -27,7 +27,12 @@ impl QobuzClient {
         app_secret: String,
         auth_token: String,
     ) -> Self {
-        Self { http, app_id, app_secret, auth_token }
+        Self {
+            http,
+            app_id,
+            app_secret,
+            auth_token,
+        }
     }
 
     pub fn http(&self) -> &reqwest::Client {
@@ -51,10 +56,7 @@ impl QobuzClient {
         loop {
             let resp: PurchaseResponse = send_with_retry(
                 self.authed_get("/purchase/getUserPurchases")
-                    .query(&[
-                        ("limit", limit.to_string()),
-                        ("offset", offset.to_string()),
-                    ]),
+                    .query(&[("limit", limit.to_string()), ("offset", offset.to_string())]),
             )
             .await
             .context("Failed to fetch purchases")?;
@@ -90,11 +92,7 @@ impl QobuzClient {
     /// the intent parameter against the signature (previously it was ignored
     /// server-side). Using `intent=stream` with `format_id=5` still returns
     /// MP3 320 URLs for purchased content.
-    pub async fn get_file_url(
-        &self,
-        track_id: TrackId,
-        format_id: u8,
-    ) -> Result<String> {
+    pub async fn get_file_url(&self, track_id: TrackId, format_id: u8) -> Result<String> {
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)?
             .as_secs()
@@ -102,16 +100,13 @@ impl QobuzClient {
 
         let sig = generate_request_sig(track_id.0, format_id, &timestamp, &self.app_secret);
 
-        let resp: FileUrlResponse = send_with_retry(
-            self.authed_get("/track/getFileUrl")
-                .query(&[
-                    ("track_id", track_id.0.to_string()),
-                    ("format_id", format_id.to_string()),
-                    ("intent", "stream".to_string()),
-                    ("request_ts", timestamp),
-                    ("request_sig", sig),
-                ]),
-        )
+        let resp: FileUrlResponse = send_with_retry(self.authed_get("/track/getFileUrl").query(&[
+            ("track_id", track_id.0.to_string()),
+            ("format_id", format_id.to_string()),
+            ("intent", "stream".to_string()),
+            ("request_ts", timestamp),
+            ("request_sig", sig),
+        ]))
         .await
         .context("Failed to get file URL")?;
 

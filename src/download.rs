@@ -35,10 +35,7 @@ pub async fn execute_downloads(client: &QobuzClient, plan: SyncPlan) -> Result<S
             let multi = Arc::clone(&multi);
             let overall = overall.clone();
             async move {
-                overall.set_message(format!(
-                    "{} - {}",
-                    task.album.artist.name, task.track.title
-                ));
+                overall.set_message(format!("{} - {}", task.album.artist.name, task.track.title));
 
                 let result = download_one(client, &task, &multi).await;
                 overall.inc(1);
@@ -48,7 +45,8 @@ pub async fn execute_downloads(client: &QobuzClient, plan: SyncPlan) -> Result<S
                     Err(e) => {
                         // Clean up temp file on failure
                         let ext_no_dot = &task.file_extension[1..];
-                        let temp_path = task.target_path.with_extension(format!("{ext_no_dot}.tmp"));
+                        let temp_path =
+                            task.target_path.with_extension(format!("{ext_no_dot}.tmp"));
                         let _ = tokio::fs::remove_file(&temp_path).await;
                         Err(DownloadError {
                             task,

@@ -110,8 +110,10 @@ impl BandcampClient {
 
         let status = resp.status();
         if status == 401 || status == 403 {
-            bail!("Bandcamp authentication failed: identity cookie is invalid or expired. \
-                   Update BANDCAMP_IDENTITY or [bandcamp] identity_cookie in config.");
+            bail!(
+                "Bandcamp authentication failed: identity cookie is invalid or expired. \
+                   Update BANDCAMP_IDENTITY or [bandcamp] identity_cookie in config."
+            );
         }
         if !status.is_success() {
             bail!("Bandcamp collection_summary returned HTTP {}", status);
@@ -260,12 +262,14 @@ impl BandcampClient {
                 return resp.json().await.context("Failed to parse response JSON");
             }
 
-            if status.as_u16() == 429
-                && attempt < MAX_RETRIES {
-                    eprintln!("HTTP 429 rate limited, backing off {:?}...", RATE_LIMIT_BACKOFF);
-                    tokio::time::sleep(RATE_LIMIT_BACKOFF).await;
-                    continue;
-                }
+            if status.as_u16() == 429 && attempt < MAX_RETRIES {
+                eprintln!(
+                    "HTTP 429 rate limited, backing off {:?}...",
+                    RATE_LIMIT_BACKOFF
+                );
+                tokio::time::sleep(RATE_LIMIT_BACKOFF).await;
+                continue;
+            }
 
             let retryable = matches!(status.as_u16(), 429 | 500 | 502 | 503 | 504);
             if !retryable || attempt == MAX_RETRIES {
@@ -299,12 +303,14 @@ impl BandcampClient {
                 return resp.text().await.context("Failed to read response text");
             }
 
-            if status.as_u16() == 429
-                && attempt < MAX_RETRIES {
-                    eprintln!("HTTP 429 rate limited, backing off {:?}...", RATE_LIMIT_BACKOFF);
-                    tokio::time::sleep(RATE_LIMIT_BACKOFF).await;
-                    continue;
-                }
+            if status.as_u16() == 429 && attempt < MAX_RETRIES {
+                eprintln!(
+                    "HTTP 429 rate limited, backing off {:?}...",
+                    RATE_LIMIT_BACKOFF
+                );
+                tokio::time::sleep(RATE_LIMIT_BACKOFF).await;
+                continue;
+            }
 
             let retryable = matches!(status.as_u16(), 429 | 500 | 502 | 503 | 504);
             if !retryable || attempt == MAX_RETRIES {
@@ -368,7 +374,11 @@ pub fn aac_hi_url(info: &BandcampDownloadInfo) -> Result<&str> {
             "No aac-hi format available for \"{}\" by {}. Available formats: {}",
             info.title,
             info.artist,
-            info.downloads.keys().cloned().collect::<Vec<_>>().join(", ")
+            info.downloads
+                .keys()
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", ")
         ))
 }
 
@@ -381,8 +391,7 @@ fn is_zip_magic(bytes: &[u8]) -> bool {
 /// Extract .m4a files from a ZIP archive. Returns extracted tracks with metadata.
 fn extract_zip(zip_bytes: &[u8], temp_dir: &Path) -> Result<Vec<ExtractedTrack>> {
     let reader = Cursor::new(zip_bytes);
-    let mut archive =
-        zip::ZipArchive::new(reader).context("Failed to open ZIP archive")?;
+    let mut archive = zip::ZipArchive::new(reader).context("Failed to open ZIP archive")?;
 
     let mut tracks = Vec::new();
 
@@ -483,9 +492,7 @@ pub fn parse_zip_track_filename(filename: &str) -> (u8, String) {
 ///
 /// Groups items by sale_item_type: albums get full Album structs (tracks filled
 /// later during download), individual tracks get standalone Album wrappers.
-pub fn to_purchase_list(
-    purchases: &BandcampPurchases,
-) -> PurchaseList {
+pub fn to_purchase_list(purchases: &BandcampPurchases) -> PurchaseList {
     let mut albums = Vec::new();
     let mut tracks = Vec::new();
 
