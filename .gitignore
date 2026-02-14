@@ -1,0 +1,22 @@
+# Rust build artifacts
+target/
+debug/
+release/
+*.rs.bk
+*.rlib
+*.prof*
+
+# IDE
+.idea/
+.vscode/
+
+# Logs and environment
+*.log
+.env*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Ephemeral project data
+var/

@@ -5,7 +5,7 @@
 
 ## Prerequisites
 
-- Rust toolchain (1.70+ / 2024 edition): `rustup default stable`
+- Rust toolchain (1.93+ / 2024 edition): `rustup default stable`
 - A Qobuz account with at least one purchased album or track
 - Network access to `qobuz.com` and `play.qobuz.com`
 

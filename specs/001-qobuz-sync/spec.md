@@ -73,8 +73,8 @@ A user syncing a large library wants to see progress and understand any issues. 
 - **FR-003**: System MUST download each purchased track in MP3 format (320 kbps preferred, highest available MP3 bitrate).
 - **FR-004**: System MUST organize downloaded files into an `Album Artist / Album / Track` directory hierarchy within the target directory. For compilation or various-artists albums, the album artist directory (e.g., "Various Artists") is used, and each track filename includes the track artist: `NN - Track Artist - Title.mp3`.
 - **FR-005**: System MUST name track files using the pattern `NN - Title.mp3` where NN is the zero-padded track number. For multi-disc albums, tracks MUST be placed in a `Disc N/` subdirectory within the album folder; single-disc albums remain flat.
-- **FR-006**: System MUST skip tracks that already exist locally with the correct file size, enabling incremental sync.
-- **FR-007**: System MUST re-download tracks whose local file is missing or has an incorrect size (partial/corrupt).
+- **FR-006**: System MUST skip tracks that already exist locally as non-empty files, enabling incremental sync.
+- **FR-007**: System MUST re-download tracks whose local file is missing or empty (zero bytes).
 - **FR-008**: System MUST accept the target directory as a command-line argument.
 - **FR-009**: System MUST accept Qobuz credentials via a config file (`~/.config/qoget/config.toml`) and/or environment variables (`QOBUZ_USERNAME`, `QOBUZ_PASSWORD`). Environment variables MUST take precedence over config file values. Credentials MUST NOT appear in shell history or CLI arguments.
 - **FR-010**: System MUST display progress during sync: current album/track name, download count, and overall status.
@@ -89,7 +89,7 @@ A user syncing a large library wants to see progress and understand any issues. 
 
 - **Purchase**: An album or individual track bought by the user on Qobuz. Has an artist, title, and one or more tracks.
 - **Track**: An individual audio file within a purchase. Has a title, track number, duration, and is available for download in MP3 format.
-- **Sync State**: The set of already-downloaded files in the target directory, determined by presence and file size, used to avoid redundant downloads.
+- **Sync State**: The set of already-downloaded files in the target directory, determined by presence (non-empty files), used to avoid redundant downloads.
 
 ## Success Criteria *(mandatory)*
 
@@ -98,7 +98,7 @@ A user syncing a large library wants to see progress and understand any issues. 
 - **SC-001**: A user can sync their entire Qobuz purchase library to a local directory with a single command invocation.
 - **SC-002**: Subsequent sync runs complete in under 30 seconds when no new purchases exist (excluding network latency for purchase list retrieval).
 - **SC-003**: All downloaded MP3 files are playable in standard audio players without corruption.
-- **SC-004**: The tool correctly identifies and skips 100% of previously downloaded tracks during incremental sync.
+- **SC-004**: The tool correctly identifies and skips 100% of previously downloaded tracks (present as non-empty files) during incremental sync.
 - **SC-005**: When individual track downloads fail, the tool still downloads all other available tracks and reports failures clearly.
 - **SC-006**: File organization follows a consistent, predictable directory structure that users can browse with any file manager.
 

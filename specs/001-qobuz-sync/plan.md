@@ -9,8 +9,8 @@ Build a Rust CLI (`qoget`) that authenticates with the Qobuz API, retrieves the 
 
 ## Technical Context
 
-**Language/Version**: Rust 2024 edition, MSRV 1.70+
-**Primary Dependencies**: tokio 1.47, reqwest 0.12, serde/serde_json 1.0, clap 4.5, toml 0.8, indicatif 0.17, anyhow 1.0, futures 0.3, md5
+**Language/Version**: Rust 2024 edition, MSRV 1.93+
+**Primary Dependencies**: tokio 1.47, reqwest 0.12, serde/serde_json 1.0, clap 4.5, toml 0.8, indicatif 0.17, anyhow 1.0, futures 0.3, md5, base64, regex
 **Storage**: Local filesystem only (no database; sync state derived from file presence + size)
 **Testing**: `cargo test` (unit tests for path construction, model deserialization, signature generation)
 **Target Platform**: macOS / Linux CLI (single binary)
@@ -23,7 +23,7 @@ Build a Rust CLI (`qoget`) that authenticates with the Qobuz API, retrieves the 
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-No project-specific constitution has been defined (template only). Gate passes trivially. The design follows principles from CLAUDE.md:
+No project-specific constitution has been defined (template only). Gate passes trivially. The design follows the project's core principles:
 - Functional style: pure functions for path construction, signature generation, sync planning
 - Parse, don't validate: newtype wrappers for TrackId, AlbumId, DiscNumber, TrackNumber
 - Make invalid states unrepresentable: `Session` requires valid auth token; `SyncPlan` separates downloads from skips at the type level

@@ -179,7 +179,7 @@ GET /track/getFileUrl
 MD5("trackgetFileUrlformat_id{format_id}intentstreamtrack_id{track_id}{timestamp}{app_secret}")
 ```
 
-The signature **always** uses `intentstream` in the hash input, regardless of the actual `intent` parameter value.
+The signature **always** uses `intentstream` in the hash input. As of 2026-02, the server also validates the `intent` query parameter against the signature, so `intent=stream` must be used in the query as well. Using `intent=download` now returns HTTP 400 "Invalid Request Signature".
 
 **Response**:
 
