@@ -260,13 +260,12 @@ impl BandcampClient {
                 return resp.json().await.context("Failed to parse response JSON");
             }
 
-            if status.as_u16() == 429 {
-                if attempt < MAX_RETRIES {
+            if status.as_u16() == 429
+                && attempt < MAX_RETRIES {
                     eprintln!("HTTP 429 rate limited, backing off {:?}...", RATE_LIMIT_BACKOFF);
                     tokio::time::sleep(RATE_LIMIT_BACKOFF).await;
                     continue;
                 }
-            }
 
             let retryable = matches!(status.as_u16(), 429 | 500 | 502 | 503 | 504);
             if !retryable || attempt == MAX_RETRIES {
@@ -300,13 +299,12 @@ impl BandcampClient {
                 return resp.text().await.context("Failed to read response text");
             }
 
-            if status.as_u16() == 429 {
-                if attempt < MAX_RETRIES {
+            if status.as_u16() == 429
+                && attempt < MAX_RETRIES {
                     eprintln!("HTTP 429 rate limited, backing off {:?}...", RATE_LIMIT_BACKOFF);
                     tokio::time::sleep(RATE_LIMIT_BACKOFF).await;
                     continue;
                 }
-            }
 
             let retryable = matches!(status.as_u16(), 429 | 500 | 502 | 503 | 504);
             if !retryable || attempt == MAX_RETRIES {

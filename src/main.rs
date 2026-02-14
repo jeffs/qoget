@@ -87,7 +87,7 @@ async fn run_sync(
     };
 
     let should_run =
-        |svc: models::Service| -> bool { service_filter.map_or(true, |f| f == svc) };
+        |svc: models::Service| -> bool { service_filter.is_none_or(|f| f == svc) };
 
     let has_qobuz = cfg.qobuz.is_some();
     let has_bandcamp = cfg.bandcamp.is_some();
