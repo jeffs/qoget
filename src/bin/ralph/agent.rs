@@ -1,6 +1,8 @@
 use std::fs;
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 
@@ -125,20 +127,33 @@ pub fn run(task: &Task, stage: Stage) -> Result<AgentResult> {
             .env("NO_PROXY", "anthropic.com");
     }
 
-    let output = cmd.output().context("spawning claude")?;
+    // Stream stdout to the log file; inherit stderr so
+    // the operator sees claude's progress on the terminal.
+    let log_out = fs::File::create(&log_file)
+        .with_context(|| format!("creating {log_file}"))?;
 
-    let mut log =
-        String::from_utf8_lossy(&output.stdout).into_owned();
-    if !output.stderr.is_empty() {
-        log.push_str("\n--- stderr ---\n");
-        log.push_str(&String::from_utf8_lossy(
-            &output.stderr,
-        ));
-    }
-    fs::write(&log_file, &log)?;
+    let mut child = cmd
+        .stdout(Stdio::from(log_out))
+        .stderr(Stdio::inherit())
+        .spawn()
+        .context("spawning claude")?;
+
+    // Heartbeat so the operator can distinguish "working"
+    // from "stuck".
+    let start = Instant::now();
+    let status = loop {
+        match child.try_wait().context("waiting for claude")? {
+            Some(s) => break s,
+            None => {
+                let secs = start.elapsed().as_secs();
+                eprintln!("    ... {secs}s");
+                thread::sleep(Duration::from_secs(30));
+            }
+        }
+    };
 
     Ok(AgentResult {
-        exit_code: output.status.code().unwrap_or(1),
+        exit_code: status.code().unwrap_or(1),
         log_file,
         model,
     })
