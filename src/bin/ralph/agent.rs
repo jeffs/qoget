@@ -121,7 +121,8 @@ pub fn run(task: &Task, stage: Stage) -> Result<AgentResult> {
 
     if !network {
         cmd.env("HTTP_PROXY", "http://127.0.0.1:1")
-            .env("HTTPS_PROXY", "http://127.0.0.1:1");
+            .env("HTTPS_PROXY", "http://127.0.0.1:1")
+            .env("NO_PROXY", "anthropic.com");
     }
 
     let output = cmd.output().context("spawning claude")?;
