@@ -103,6 +103,10 @@ pub struct Task {
     pub error: Option<String>,
     #[serde(default)]
     pub retries: u32,
+    /// When true, Reproduce and Test stages run without
+    /// the dead proxy, allowing upstream API access.
+    #[serde(default)]
+    pub allow_network: bool,
 }
 
 impl Task {
@@ -303,6 +307,7 @@ mod tests {
             context_files: vec![],
             error: None,
             retries: 0,
+            allow_network: false,
         };
         let blocked = Task {
             id: "002".into(),
@@ -316,6 +321,7 @@ mod tests {
             context_files: vec![],
             error: None,
             retries: 0,
+            allow_network: false,
         };
         let all = vec![blocker.clone(), blocked.clone()];
 

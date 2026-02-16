@@ -105,18 +105,26 @@ pub fn run(task: &Task, stage: Stage) -> Result<AgentResult> {
     ]
     .join(",");
 
-    let output = Command::new("claude")
-        .arg("-p")
+    // Allow network for Reproduce/Test stages when the
+    // task opts in. All other stages stay air-gapped.
+    let network = task.allow_network
+        && matches!(stage, Stage::Reproduce | Stage::Test);
+
+    let mut cmd = Command::new("claude");
+    cmd.arg("-p")
         .args(["--model", model])
         .args(["--max-budget-usd", "2.00"])
         .args(["--allowedTools", &allowed_tools])
         .arg("--dangerously-skip-permissions")
         .arg(&prompt)
-        .env("HTTP_PROXY", "http://127.0.0.1:1")
-        .env("HTTPS_PROXY", "http://127.0.0.1:1")
-        .env_remove("CLAUDECODE")
-        .output()
-        .context("spawning claude")?;
+        .env_remove("CLAUDECODE");
+
+    if !network {
+        cmd.env("HTTP_PROXY", "http://127.0.0.1:1")
+            .env("HTTPS_PROXY", "http://127.0.0.1:1");
+    }
+
+    let output = cmd.output().context("spawning claude")?;
 
     let mut log =
         String::from_utf8_lossy(&output.stdout).into_owned();

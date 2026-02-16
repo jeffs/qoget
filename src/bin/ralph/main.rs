@@ -79,6 +79,16 @@ fn main() -> Result<()> {
             task.id, task.title
         );
         eprintln!("    Stage: {stage}");
+        if task.allow_network {
+            let live = matches!(
+                stage,
+                Stage::Reproduce | Stage::Test
+            );
+            eprintln!(
+                "    Network: {}",
+                if live { "LIVE" } else { "blocked" }
+            );
+        }
 
         // Mark in-progress
         task.status = Status::InProgress;

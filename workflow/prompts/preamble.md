@@ -23,7 +23,10 @@ qoget is a Rust CLI tool for syncing purchased music from Qobuz and Bandcamp.
 - Data is constructed inline using helper functions (e.g. `make_item()`)
 - JSON fixtures use `serde_json::from_str()` with raw string literals
 - **NEVER** construct `reqwest::Client` in tests
-- **NEVER** make real HTTP requests — all test data is inline JSON/structs
+- **Avoid real HTTP requests** — test data should be inline JSON/structs.
+  If network access is available (no proxy), you may run `cargo run` to
+  observe real API behavior for diagnosis, but keep calls to a minimum.
+  Never add real API URLs to test source files.
 
 ## Hard Constraints
 
