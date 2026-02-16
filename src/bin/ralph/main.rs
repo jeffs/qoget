@@ -96,7 +96,7 @@ fn main() -> Result<()> {
         task.save()?;
 
         // Prepare jj change
-        let change_id = match jj::new_change(&task, stage) {
+        let change_id = match jj::new_change(&mut task, stage) {
             Ok(cid) => {
                 eprintln!("    JJ change: {cid}");
                 cid
@@ -220,9 +220,10 @@ fn handle_failure(
 ) -> Result<()> {
     let _ = jj::abandon(); // best-effort
 
-    task.retries += 1;
+    task.increment_stage_retries(stage);
+    let retries = task.stage_retries(stage);
 
-    if task.retries > MAX_RETRIES {
+    if retries > MAX_RETRIES {
         eprintln!(
             "    Max retries exceeded — marking FAILED"
         );
@@ -231,8 +232,8 @@ fn handle_failure(
         task.set_stage_status(stage, Status::Failed);
     } else {
         eprintln!(
-            "    Retry {}/{}",
-            task.retries, MAX_RETRIES
+            "    Retry {retries}/{MAX_RETRIES} \
+             (stage: {stage})"
         );
         task.set_stage_status(stage, Status::Pending);
         task.status = Status::Pending;

@@ -21,6 +21,11 @@
    conventions:
    - Use `#[test]` (not async)
    - Construct test data inline (no HTTP, no external resources)
+   - **NEVER** use real service domains in test data — no
+     `bandcamp.com`, `qobuz.com`, `akamaized.net`, `bcbits.com`,
+     or `popplers5`. Use `example.com` for any URLs. This applies
+     to HTML fixtures, JSON fixtures, and string literals alike.
+     An automated safety check will reject your changes otherwise.
    - Use `serde_json::from_str()` for JSON fixtures
    - Use helper functions like `make_item()` if they exist
    - Name tests descriptively: `fn bug_{{id}}_short_description()`

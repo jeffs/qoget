@@ -278,31 +278,19 @@ pub async fn execute_bandcamp_downloads(
 }
 
 /// Check if a Bandcamp item is already synced locally.
+///
+/// Checks the album directory for any .m4a files. Works for
+/// both multi-track albums and single tracks since both end
+/// up under `Artist/Title/`.
 async fn is_already_synced(
     target_dir: &Path,
-    item: &BandcampCollectionItem,
+    _item: &BandcampCollectionItem,
     album: &Album,
 ) -> bool {
-    if item.sale_item_type == "a" {
-        // Album: check if the album directory contains any .m4a files
-        let album_dir = target_dir
-            .join(sanitize_component(&album.artist.name))
-            .join(sanitize_component(&album.title));
-        has_m4a_files(&album_dir).await
-    } else {
-        // Track: check if the specific target file exists
-        let track = Track {
-            id: TrackId(item.item_id),
-            title: item.item_title.clone(),
-            track_number: TrackNumber(1),
-            media_number: DiscNumber(1),
-            duration: 0,
-            performer: album.artist.clone(),
-            isrc: None,
-        };
-        let target = track_path(target_dir, album, &track, ".m4a");
-        tokio::fs::metadata(&target).await.is_ok()
-    }
+    let album_dir = target_dir
+        .join(sanitize_component(&album.artist.name))
+        .join(sanitize_component(&album.title));
+    has_m4a_files(&album_dir).await
 }
 
 /// Download and extract a single Bandcamp item (album ZIP or single track).
@@ -322,8 +310,8 @@ async fn download_bandcamp_item(
     let extracted = client.download_and_extract(url, temp_dir).await?;
     let mut count = 0;
 
-    if item.sale_item_type == "a" {
-        // Album: use extracted track metadata for paths
+    if extracted.len() > 1 {
+        // Multi-track: use extracted track metadata for paths
         for ext_track in extracted {
             let track = Track {
                 id: TrackId(

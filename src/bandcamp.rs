@@ -83,7 +83,10 @@ impl BandcampClient {
         // Build cookie jar with identity cookie on bandcamp.com
         let jar = reqwest::cookie::Jar::default();
         let url = BASE_URL.parse::<reqwest::Url>().unwrap();
-        jar.add_cookie_str(&format!("identity={}", identity_cookie), &url);
+        jar.add_cookie_str(
+            &format!("identity={}; Domain=bandcamp.com", identity_cookie),
+            &url,
+        );
 
         let http = reqwest::Client::builder()
             .user_agent(USER_AGENT)
@@ -205,23 +208,85 @@ impl BandcampClient {
         parse_download_page(&html)
     }
 
-    /// Download an album ZIP (or single track file) and extract .m4a files.
+    /// Resolve the actual CDN download URL via Bandcamp's
+    /// stat endpoint.
+    ///
+    /// Bandcamp download URLs (from pagedata) aren't direct
+    /// file links. You must hit `/statdownload/` instead of
+    /// `/download/` to get either:
+    ///   - `result: 'ok'` → original URL is ready
+    ///   - a JSON blob with `download_url` → the real CDN URL
+    async fn resolve_download_url(
+        &self,
+        download_url: &str,
+    ) -> Result<String> {
+        let stat_url = download_url.replacen(
+            "/download/", "/statdownload/", 1,
+        );
+        if stat_url == download_url {
+            // No /download/ segment — use as-is.
+            return Ok(download_url.to_string());
+        }
+
+        self.rate_limiter.wait().await;
+
+        let body = self
+            .send_text_with_retry(self.http.get(&stat_url))
+            .await
+            .with_context(|| {
+                format!("stat request failed: {stat_url}")
+            })?;
+
+        // Response is JavaScript: `var _statDL_result = {...};`
+        // If it says result: 'ok', the original URL works.
+        if body.contains("result: 'ok'")
+            || body.contains("\"result\":\"ok\"")
+            || body.contains("\"result\": \"ok\"")
+        {
+            return Ok(download_url.to_string());
+        }
+
+        // Otherwise extract "download_url":"<actual url>"
+        // from the JavaScript/JSON body.
+        let re = Regex::new(r#""download_url"\s*:\s*"([^"]+)""#)
+            .unwrap();
+        if let Some(caps) = re.captures(&body) {
+            return Ok(caps[1].to_string());
+        }
+
+        bail!(
+            "Could not extract download URL from stat \
+             response:\n{}",
+            &body[..body.len().min(500)]
+        );
+    }
+
+    /// Download an album ZIP (or single track file) and
+    /// extract .m4a files.
     pub async fn download_and_extract(
         &self,
         download_url: &str,
         temp_dir: &Path,
     ) -> Result<Vec<ExtractedTrack>> {
+        // Resolve the real CDN URL via the stat endpoint.
+        let resolved = self
+            .resolve_download_url(download_url)
+            .await?;
+
         self.rate_limiter.wait().await;
 
         let resp = self
             .http
-            .get(download_url)
+            .get(&resolved)
             .send()
             .await
             .context("Failed to download file")?;
 
         if !resp.status().is_success() {
-            bail!("Download returned HTTP {}", resp.status());
+            bail!(
+                "Download returned HTTP {}",
+                resp.status()
+            );
         }
 
         let content_type = resp
@@ -231,13 +296,17 @@ impl BandcampClient {
             .unwrap_or("")
             .to_string();
 
-        let bytes = resp.bytes().await.context("Failed to read download body")?;
+        let bytes = resp
+            .bytes()
+            .await
+            .context("Failed to read download body")?;
 
-        if content_type.contains("zip") || is_zip_magic(&bytes) {
+        if content_type.contains("zip")
+            || is_zip_magic(&bytes)
+        {
             extract_zip(&bytes, temp_dir)
         } else {
-            // Single track — bare audio file
-            extract_single_track(&bytes, temp_dir, download_url)
+            extract_single_track(&bytes, temp_dir, &resolved)
         }
     }
 
@@ -331,7 +400,7 @@ impl BandcampClient {
 
 /// Parse the download page HTML to extract BandcampDownloadInfo.
 /// Looks for `<div id="pagedata" data-blob="...">` and decodes the HTML entities.
-fn parse_download_page(html: &str) -> Result<BandcampDownloadInfo> {
+pub fn parse_download_page(html: &str) -> Result<BandcampDownloadInfo> {
     let re = Regex::new(r#"id="pagedata"\s+data-blob="([^"]+)""#)?;
     let caps = re
         .captures(html)
@@ -384,8 +453,26 @@ pub fn aac_hi_url(info: &BandcampDownloadInfo) -> Result<&str> {
 
 // --- ZIP extraction ---
 
-fn is_zip_magic(bytes: &[u8]) -> bool {
+pub fn is_zip_magic(bytes: &[u8]) -> bool {
     bytes.len() >= 4 && bytes[..4] == [0x50, 0x4B, 0x03, 0x04]
+}
+
+/// Detect HTML content by looking for `<!DOCTYPE` or `<html`
+/// after stripping leading whitespace.
+fn is_html(bytes: &[u8]) -> bool {
+    let trimmed: &[u8] = bytes
+        .iter()
+        .position(|&b| {
+            b != b' ' && b != b'\t' && b != b'\n' && b != b'\r'
+        })
+        .map_or(b"", |i| &bytes[i..]);
+    let prefix: Vec<u8> = trimmed
+        .iter()
+        .take(15)
+        .map(|b| b.to_ascii_lowercase())
+        .collect();
+    prefix.starts_with(b"<!doctype")
+        || prefix.starts_with(b"<html")
 }
 
 /// Extract .m4a files from a ZIP archive. Returns extracted tracks with metadata.
@@ -434,11 +521,18 @@ fn extract_zip(zip_bytes: &[u8], temp_dir: &Path) -> Result<Vec<ExtractedTrack>>
 }
 
 /// Extract a single track from a bare audio file response.
-fn extract_single_track(
+pub fn extract_single_track(
     bytes: &[u8],
     temp_dir: &Path,
     download_url: &str,
 ) -> Result<Vec<ExtractedTrack>> {
+    if is_html(bytes) {
+        bail!(
+            "Download returned HTML instead of audio \
+             (likely an expired or unauthenticated URL)"
+        );
+    }
+
     let temp_path = temp_dir.join("bc_extract_single.m4a");
     std::fs::write(&temp_path, bytes)
         .with_context(|| format!("Failed to write temp file: {}", temp_path.display()))?;
@@ -466,15 +560,38 @@ fn extract_title_from_url(url: &str) -> String {
 pub fn parse_zip_track_filename(filename: &str) -> (u8, String) {
     let stem = filename.trim_end_matches(".m4a").trim_end_matches(".M4A");
 
+    // Bandcamp ZIP filenames come in two forms:
+    //   "01 Dream House.m4a"               (simple)
+    //   "Artist - Album - 01 Title.m4a"    (prefixed)
+    //
+    // For the prefixed form, strip everything up to and
+    // including the last " - " that precedes a digit.
+    let parse_from = if let Some(idx) =
+        stem.rmatch_indices(" - ").find_map(|(i, _)| {
+            stem[i + 3..]
+                .chars()
+                .next()
+                .filter(|c| c.is_ascii_digit())
+                .map(|_| i + 3)
+        })
+    {
+        &stem[idx..]
+    } else {
+        stem
+    };
+
     // Try to extract leading digits as track number
-    let digits: String = stem.chars().take_while(|c| c.is_ascii_digit()).collect();
+    let digits: String = parse_from
+        .chars()
+        .take_while(|c| c.is_ascii_digit())
+        .collect();
 
     if digits.is_empty() {
-        return (0, stem.to_string());
+        return (0, parse_from.to_string());
     }
 
     let track_number = digits.parse::<u8>().unwrap_or(0);
-    let rest = &stem[digits.len()..];
+    let rest = &parse_from[digits.len()..];
 
     // Strip separator: space, " - ", etc.
     let title = rest

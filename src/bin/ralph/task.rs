@@ -84,6 +84,8 @@ impl TaskType {
 pub struct StageState {
     pub status: Status,
     pub change_id: Option<String>,
+    #[serde(default)]
+    pub retries: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -101,8 +103,6 @@ pub struct Task {
     #[serde(default)]
     pub context_files: Vec<String>,
     pub error: Option<String>,
-    #[serde(default)]
-    pub retries: u32,
     /// When true, Reproduce and Test stages run without
     /// the dead proxy, allowing upstream API access.
     #[serde(default)]
@@ -207,6 +207,30 @@ impl Task {
             ss.change_id = Some(change_id);
         }
     }
+
+    pub fn clear_stage_change_id(
+        &mut self,
+        stage: Stage,
+    ) {
+        if let Some(ss) = self.stages.get_mut(&stage) {
+            ss.change_id = None;
+        }
+    }
+
+    pub fn stage_retries(&self, stage: Stage) -> u32 {
+        self.stages
+            .get(&stage)
+            .map_or(0, |ss| ss.retries)
+    }
+
+    pub fn increment_stage_retries(
+        &mut self,
+        stage: Stage,
+    ) {
+        if let Some(ss) = self.stages.get_mut(&stage) {
+            ss.retries += 1;
+        }
+    }
 }
 
 #[cfg(test)]
@@ -309,7 +333,6 @@ mod tests {
             stages: BTreeMap::new(),
             context_files: vec![],
             error: None,
-            retries: 0,
             allow_network: false,
         };
         let blocked = Task {
@@ -323,7 +346,6 @@ mod tests {
             stages: BTreeMap::new(),
             context_files: vec![],
             error: None,
-            retries: 0,
             allow_network: false,
         };
         let all = vec![blocker.clone(), blocked.clone()];

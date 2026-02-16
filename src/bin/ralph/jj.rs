@@ -24,10 +24,22 @@ pub fn current_change_id() -> Result<String> {
         .to_string())
 }
 
+/// Check whether a change_id still exists in the repo.
+fn change_exists(change_id: &str) -> bool {
+    Command::new("jj")
+        .args(["log", "-r", change_id, "--no-graph", "-T", "\"\""])
+        .output()
+        .is_ok_and(|o| o.status.success())
+}
+
 /// Create a new jj change for a stage, parented on the
 /// previous stage's change or on main.
+///
+/// If a previous stage recorded a change_id that no longer
+/// exists (user cleanup, abandon, squash), falls back to
+/// main and clears the stale id from the task.
 pub fn new_change(
-    task: &Task,
+    task: &mut Task,
     stage: Stage,
 ) -> Result<String> {
     let stages = task.task_type.stages();
@@ -40,16 +52,26 @@ pub fn new_change(
         "main".to_string()
     } else {
         let prev = stages[idx - 1];
-        task.stages
+        match task
+            .stages
             .get(&prev)
             .and_then(|ss| ss.change_id.as_deref())
-            .with_context(|| {
-                format!(
-                    "previous stage '{prev}' has no \
-                     change_id"
-                )
-            })?
-            .to_string()
+        {
+            Some(cid) if change_exists(cid) => {
+                cid.to_string()
+            }
+            Some(_) => {
+                // Stale change_id — clear it, fall back
+                // to main.
+                eprintln!(
+                    "    warn: {prev} change_id is stale, \
+                     falling back to main"
+                );
+                task.clear_stage_change_id(prev);
+                "main".to_string()
+            }
+            None => "main".to_string(),
+        }
     };
 
     let description =
@@ -87,6 +109,7 @@ pub fn squash_chain(task: &Task) -> Result<()> {
             task.stages
                 .get(s)
                 .and_then(|ss| ss.change_id.as_deref())
+                .filter(|cid| !cid.is_empty())
         })
         .collect();
 
@@ -96,10 +119,12 @@ pub fn squash_chain(task: &Task) -> Result<()> {
 
     let first = change_ids[0];
     let last = change_ids[change_ids.len() - 1];
+    let msg = format!("task {}: {}", task.id, task.title);
 
     let status = Command::new("jj")
         .args([
             "squash", "--from", first, "--into", last,
+            "-m", &msg,
         ])
         .status()
         .context("running jj squash")?;

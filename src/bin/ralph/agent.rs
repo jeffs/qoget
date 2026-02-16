@@ -11,12 +11,19 @@ use crate::task::{Stage, Task, TaskType};
 const PROMPT_DIR: &str = "workflow/prompts";
 const LOG_DIR: &str = "var/agent-logs";
 
+/// URL-like patterns that indicate real API endpoints.
+/// Bare domain mentions (e.g. in HTML fixtures) are fine;
+/// we only flag strings that look like fetchable URLs.
 const FORBIDDEN_PATTERNS: &[&str] = &[
-    "qobuz.com",
-    "bandcamp.com",
-    "akamaized.net",
-    "popplers5",
-    "bcbits.com",
+    "://qobuz.com",
+    "://bandcamp.com",
+    "://akamaized.net",
+    "://popplers5",
+    "://bcbits.com",
+    ".qobuz.com/",
+    ".bandcamp.com/",
+    ".akamaized.net/",
+    ".bcbits.com/",
 ];
 
 pub struct AgentResult {
@@ -115,7 +122,7 @@ pub fn run(task: &Task, stage: Stage) -> Result<AgentResult> {
     let mut cmd = Command::new("claude");
     cmd.arg("-p")
         .args(["--model", model])
-        .args(["--max-budget-usd", "2.00"])
+        .args(["--max-budget-usd", "25.00"])
         .args(["--allowedTools", &allowed_tools])
         .arg("--dangerously-skip-permissions")
         .arg(&prompt)
@@ -159,39 +166,45 @@ pub fn run(task: &Task, stage: Stage) -> Result<AgentResult> {
     })
 }
 
-/// Scan files changed in the current jj change for
-/// forbidden API URLs. Returns a list of violations.
+/// Scan *added lines* in the current jj change for
+/// forbidden API URLs. Only checks test/var files, and
+/// only the lines the agent actually added.
 pub fn safety_check() -> Result<Vec<String>> {
     let output = Command::new("jj")
-        .args(["diff", "--name-only"])
+        .args(["diff", "--git"])
         .output()
-        .context("running jj diff --name-only")?;
+        .context("running jj diff --git")?;
 
-    let changed = String::from_utf8_lossy(&output.stdout);
+    let diff = String::from_utf8_lossy(&output.stdout);
     let mut violations = Vec::new();
+    let mut current_file: Option<String> = None;
+    let mut in_guarded_file = false;
 
-    for line in changed.lines() {
-        let file = line.trim();
-        if file.is_empty() {
+    for line in diff.lines() {
+        if let Some(path) = line.strip_prefix("+++ b/") {
+            in_guarded_file = path.starts_with("tests/")
+                || path.starts_with("var/");
+            current_file = if in_guarded_file {
+                Some(path.to_string())
+            } else {
+                None
+            };
             continue;
         }
-        // Only check test files and var/ docs
-        if !file.starts_with("tests/")
-            && !file.starts_with("var/")
-        {
+        if !in_guarded_file {
             continue;
         }
-        let path = Path::new(file);
-        if !path.exists() {
-            continue;
-        }
-        let content = fs::read_to_string(path)
-            .with_context(|| format!("reading {file}"))?;
-        for pattern in FORBIDDEN_PATTERNS {
-            if content.contains(pattern) {
-                violations.push(format!(
-                    "{file}: contains '{pattern}'"
-                ));
+        if let Some(added) = line.strip_prefix('+') {
+            for pattern in FORBIDDEN_PATTERNS {
+                if added.contains(pattern) {
+                    let file = current_file
+                        .as_deref()
+                        .unwrap_or("?");
+                    violations.push(format!(
+                        "{file}: added line contains \
+                         '{pattern}'"
+                    ));
+                }
             }
         }
     }

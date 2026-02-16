@@ -1,9 +1,12 @@
 use std::collections::HashMap;
 
-use qoget::bandcamp::{BandcampPurchases, parse_zip_track_filename, to_purchase_list};
+use qoget::bandcamp::{
+    BandcampPurchases, extract_single_track, is_zip_magic,
+    parse_zip_track_filename, to_purchase_list,
+};
 use qoget::models::{
-    BandcampCollectionItem, BandcampCollectionResponse, BandcampDownloadFormat,
-    BandcampDownloadInfo,
+    BandcampCollectionItem, BandcampCollectionResponse,
+    BandcampDownloadFormat, BandcampDownloadInfo,
 };
 
 // --- BandcampCollectionResponse deserialization ---
@@ -185,6 +188,24 @@ fn parse_uppercase_extension() {
     assert_eq!(title, "Windows");
 }
 
+#[test]
+fn parse_artist_album_prefix() {
+    let (num, title) = parse_zip_track_filename(
+        "Caravan Palace - -I°_°I- - 01 Lone Digger.m4a",
+    );
+    assert_eq!(num, 1);
+    assert_eq!(title, "Lone Digger");
+}
+
+#[test]
+fn parse_artist_album_prefix_double_digit() {
+    let (num, title) = parse_zip_track_filename(
+        "Artist - Album Name - 11 Last Track.m4a",
+    );
+    assert_eq!(num, 11);
+    assert_eq!(title, "Last Track");
+}
+
 // --- to_purchase_list conversion ---
 
 fn make_item(band: &str, title: &str, item_id: u64, sale_type: &str) -> BandcampCollectionItem {
@@ -269,3 +290,52 @@ fn to_purchase_list_unknown_type_skipped() {
     assert_eq!(pl.albums.len(), 0);
     assert_eq!(pl.tracks.len(), 0);
 }
+
+// --- Bug 001: HTML response not detected as non-audio ---
+
+/// Bandcamp sometimes returns an HTML error page instead of
+/// audio. `extract_single_track` should reject bytes that
+/// are clearly HTML rather than silently saving them as .m4a.
+#[test]
+fn bug_001_extract_single_track_rejects_html() {
+    let html = b"    <!DOCTYPE html>\n<html><body>Error</body></html>";
+
+    let temp_dir = std::env::temp_dir().join("qoget_test_001_html");
+    let _ = std::fs::create_dir_all(&temp_dir);
+
+    let result = extract_single_track(
+        html,
+        &temp_dir,
+        "https://example.com/download/album?enc=aac-hi&id=1",
+    );
+
+    // A correct implementation must reject HTML content.
+    // The current code silently writes HTML as .m4a — this
+    // assertion will FAIL, demonstrating the bug.
+    assert!(
+        result.is_err(),
+        "extract_single_track should reject HTML bytes, \
+         but it returned Ok({} track(s))",
+        result.as_ref().map_or(0, |v| v.len()),
+    );
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+/// `is_zip_magic` correctly identifies non-ZIP content,
+/// but there is no corresponding audio validation. Bytes
+/// that start with HTML are not ZIP, so `download_and_extract`
+/// falls through to `extract_single_track` — which should
+/// (but does not) reject them.
+#[test]
+fn bug_001_html_bytes_are_not_zip() {
+    let html = b"    <!DOCTYPE html>\n<html><body>Error</body></html>";
+    // Confirm HTML is not mistaken for ZIP — this passes,
+    // showing the dispatch to extract_single_track is
+    // expected for HTML input.
+    assert!(
+        !is_zip_magic(html),
+        "HTML should not be detected as ZIP",
+    );
+}
+
