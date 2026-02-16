@@ -171,9 +171,12 @@ impl Task {
 
     pub fn next_stage(&self) -> Option<Stage> {
         self.task_type.stages().iter().copied().find(|s| {
-            self.stages
-                .get(s)
-                .is_some_and(|ss| ss.status == Status::Pending)
+            self.stages.get(s).is_some_and(|ss| {
+                matches!(
+                    ss.status,
+                    Status::Pending | Status::InProgress
+                )
+            })
         })
     }
 
