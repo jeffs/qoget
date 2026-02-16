@@ -265,12 +265,22 @@ async fn run_qobuz_sync(
 
     let result = download::execute_downloads(&qobuz, plan).await?;
 
-    eprintln!(
-        "\nQobuz: {} succeeded, {} failed, {} skipped",
-        result.succeeded.len(),
-        result.failed.len(),
-        result.skipped.len()
-    );
+    if result.fallback_count > 0 {
+        eprintln!(
+            "\nQobuz: {} succeeded ({} as FLAC), {} failed, {} skipped",
+            result.succeeded.len(),
+            result.fallback_count,
+            result.failed.len(),
+            result.skipped.len()
+        );
+    } else {
+        eprintln!(
+            "\nQobuz: {} succeeded, {} failed, {} skipped",
+            result.succeeded.len(),
+            result.failed.len(),
+            result.skipped.len()
+        );
+    }
 
     if !result.failed.is_empty() {
         eprintln!("\nFailed Qobuz downloads:");

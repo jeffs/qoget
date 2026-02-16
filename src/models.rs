@@ -191,6 +191,7 @@ pub struct SyncResult {
     pub succeeded: Vec<DownloadTask>,
     pub failed: Vec<DownloadError>,
     pub skipped: Vec<SkippedTrack>,
+    pub fallback_count: usize,
 }
 
 // --- Bandcamp API response types ---

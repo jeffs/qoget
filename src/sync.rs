@@ -9,19 +9,41 @@ use crate::path::track_path;
 /// Set of local files that exist and are non-empty.
 pub struct ExistingFiles(HashSet<PathBuf>);
 
+/// Alternative extensions to check when determining if a track already exists.
+/// Handles format fallback: a task planned as `.mp3` may already exist as `.flac`.
+const ALT_EXTENSIONS: &[&str] = &[".flac", ".mp3"];
+
 /// Scan the target paths in the plan and stat each one.
+/// Also checks alternative extensions (e.g., `.flac` for a `.mp3` task) so that
+/// tracks downloaded via format fallback are recognized as already synced.
 /// This is the only I/O in the sync module — keeps build_sync_plan pure.
 pub async fn scan_existing(tasks: &[DownloadTask]) -> ExistingFiles {
     let mut existing = HashSet::new();
     for task in tasks {
-        if let Ok(meta) = tokio::fs::metadata(&task.target_path).await
-            && meta.is_file()
-            && meta.len() > 0
-        {
+        if file_exists_nonempty(&task.target_path).await {
             existing.insert(task.target_path.clone());
+            continue;
+        }
+        // Check alternative extensions (e.g., .flac when task targets .mp3)
+        for alt_ext in ALT_EXTENSIONS {
+            if *alt_ext == task.file_extension {
+                continue;
+            }
+            let alt_path = task.target_path.with_extension(&alt_ext[1..]);
+            if file_exists_nonempty(&alt_path).await {
+                // Record the original planned path so build_sync_plan marks it as skipped
+                existing.insert(task.target_path.clone());
+                break;
+            }
         }
     }
     ExistingFiles(existing)
+}
+
+async fn file_exists_nonempty(path: &Path) -> bool {
+    tokio::fs::metadata(path)
+        .await
+        .is_ok_and(|m| m.is_file() && m.len() > 0)
 }
 
 /// Build a sync plan from pre-built download tasks. Pure function — no I/O.

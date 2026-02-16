@@ -16,6 +16,13 @@ use crate::path::{sanitize_component, track_path};
 
 const CONCURRENT_DOWNLOADS: usize = 4;
 const FORMAT_ID_MP3_320: u8 = 5;
+const FORMAT_ID_CD_QUALITY: u8 = 6;
+
+/// Result of a single track download indicating which format was used.
+pub enum DownloadOutcome {
+    Mp3,
+    FlacFallback,
+}
 
 /// Execute all downloads in the sync plan with bounded parallelism and progress bars.
 pub async fn execute_downloads(client: &QobuzClient, plan: SyncPlan) -> Result<SyncResult> {
@@ -30,7 +37,7 @@ pub async fn execute_downloads(client: &QobuzClient, plan: SyncPlan) -> Result<S
             .expect("valid template"),
     );
 
-    let results: Vec<Result<DownloadTask, DownloadError>> =
+    let results: Vec<Result<(DownloadTask, DownloadOutcome), DownloadError>> =
         stream::iter(plan.downloads.into_iter().map(|task| {
             let multi = Arc::clone(&multi);
             let overall = overall.clone();
@@ -41,13 +48,15 @@ pub async fn execute_downloads(client: &QobuzClient, plan: SyncPlan) -> Result<S
                 overall.inc(1);
 
                 match result {
-                    Ok(()) => Ok(task),
+                    Ok(outcome) => Ok((task, outcome)),
                     Err(e) => {
-                        // Clean up temp file on failure
-                        let ext_no_dot = &task.file_extension[1..];
-                        let temp_path =
-                            task.target_path.with_extension(format!("{ext_no_dot}.tmp"));
-                        let _ = tokio::fs::remove_file(&temp_path).await;
+                        // Clean up temp files on failure (both .mp3.tmp and .flac.tmp)
+                        for ext in [task.file_extension, ".flac"] {
+                            let ext_no_dot = &ext[1..];
+                            let temp_path =
+                                task.target_path.with_extension(format!("{ext_no_dot}.tmp"));
+                            let _ = tokio::fs::remove_file(&temp_path).await;
+                        }
                         Err(DownloadError {
                             task,
                             error: format!("{e:#}"),
@@ -64,9 +73,15 @@ pub async fn execute_downloads(client: &QobuzClient, plan: SyncPlan) -> Result<S
 
     let mut succeeded = Vec::new();
     let mut failed = Vec::new();
+    let mut fallback_count = 0;
     for result in results {
         match result {
-            Ok(task) => succeeded.push(task),
+            Ok((task, outcome)) => {
+                if matches!(outcome, DownloadOutcome::FlacFallback) {
+                    fallback_count += 1;
+                }
+                succeeded.push(task);
+            }
             Err(err) => failed.push(err),
         }
     }
@@ -75,28 +90,60 @@ pub async fn execute_downloads(client: &QobuzClient, plan: SyncPlan) -> Result<S
         succeeded,
         failed,
         skipped,
+        fallback_count,
     })
 }
 
-/// Download a single track: get URL, stream to temp file, rename to target.
+/// Download a single track: get URL (with format fallback), stream to temp file, rename to target.
+///
+/// Tries MP3 320 first. If the format request fails, retries with CD Quality (FLAC).
+/// Returns which format was actually downloaded.
 async fn download_one(
     client: &QobuzClient,
     task: &DownloadTask,
     multi: &MultiProgress,
-) -> Result<()> {
-    // Get download URL
-    let url = client
+) -> Result<DownloadOutcome> {
+    // Try MP3 320, fall back to CD Quality on error
+    let (url, outcome) = match client
         .get_file_url(task.track.id, FORMAT_ID_MP3_320)
-        .await?;
+        .await
+    {
+        Ok(url) => (url, DownloadOutcome::Mp3),
+        Err(_mp3_err) => {
+            eprintln!(
+                "  MP3 unavailable, downloading CD Quality: {} - {}",
+                task.album.artist.name, task.track.title
+            );
+            let url = client
+                .get_file_url(task.track.id, FORMAT_ID_CD_QUALITY)
+                .await
+                .map_err(|cd_err| {
+                    anyhow::anyhow!(
+                        "unavailable in both MP3 320 and CD Quality: {cd_err:#}"
+                    )
+                })?;
+            (url, DownloadOutcome::FlacFallback)
+        }
+    };
+
+    // Determine actual target path (may differ from planned if fallback occurred)
+    let actual_target = match outcome {
+        DownloadOutcome::Mp3 => task.target_path.clone(),
+        DownloadOutcome::FlacFallback => task.target_path.with_extension("flac"),
+    };
 
     // Ensure parent directory exists
-    if let Some(parent) = task.target_path.parent() {
+    if let Some(parent) = actual_target.parent() {
         tokio::fs::create_dir_all(parent).await?;
     }
 
     // Download to temp file in same directory, then rename
-    let ext_no_dot = &task.file_extension[1..];
-    let temp_path = task.target_path.with_extension(format!("{ext_no_dot}.tmp"));
+    let actual_ext = match outcome {
+        DownloadOutcome::Mp3 => task.file_extension,
+        DownloadOutcome::FlacFallback => ".flac",
+    };
+    let ext_no_dot = &actual_ext[1..];
+    let temp_path = actual_target.with_extension(format!("{ext_no_dot}.tmp"));
 
     let resp = client.http().get(&url).send().await?;
 
@@ -125,9 +172,9 @@ async fn download_one(
     pb.finish_and_clear();
 
     // Atomic rename
-    tokio::fs::rename(&temp_path, &task.target_path).await?;
+    tokio::fs::rename(&temp_path, &actual_target).await?;
 
-    Ok(())
+    Ok(outcome)
 }
 
 // --- Bandcamp download dispatch ---
