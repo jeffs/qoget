@@ -1,4 +1,4 @@
-use qoget::config::parse_toml_config;
+use qoget::config::{QobuzState, parse_toml_config};
 
 #[test]
 fn new_format_qobuz_only() {
@@ -10,7 +10,7 @@ password = "secret"
 "#,
     )
     .unwrap();
-    let q = cfg.qobuz.expect("qobuz should be configured");
+    let q = cfg.qobuz.ready().expect("qobuz should be configured");
     assert_eq!(q.username, "user@example.com");
     assert_eq!(q.password, "secret");
     assert!(q.app_id.is_none());
@@ -30,7 +30,7 @@ identity_cookie = "6%09abc"
 "#,
     )
     .unwrap();
-    assert!(cfg.qobuz.is_some());
+    assert!(cfg.qobuz.ready().is_some());
     let b = cfg.bandcamp.expect("bandcamp should be configured");
     assert_eq!(b.identity_cookie, "6%09abc");
 }
@@ -44,7 +44,7 @@ password = "secret"
 "#,
     )
     .unwrap();
-    let q = cfg.qobuz.expect("qobuz via bare keys");
+    let q = cfg.qobuz.ready().expect("qobuz via bare keys");
     assert_eq!(q.username, "user@example.com");
     assert_eq!(q.password, "secret");
     assert!(cfg.bandcamp.is_none());
@@ -62,7 +62,7 @@ identity_cookie = "cookie-val"
 "#,
     )
     .unwrap();
-    assert!(cfg.qobuz.is_some());
+    assert!(cfg.qobuz.ready().is_some());
     assert!(cfg.bandcamp.is_some());
 }
 
@@ -75,7 +75,7 @@ identity_cookie = "cookie-val"
 "#,
     )
     .unwrap();
-    assert!(cfg.qobuz.is_none());
+    assert!(matches!(cfg.qobuz, QobuzState::NotConfigured));
     let b = cfg.bandcamp.expect("bandcamp should be configured");
     assert_eq!(b.identity_cookie, "cookie-val");
 }
@@ -83,7 +83,7 @@ identity_cookie = "cookie-val"
 #[test]
 fn empty_config() {
     let cfg = parse_toml_config("").unwrap();
-    assert!(cfg.qobuz.is_none());
+    assert!(matches!(cfg.qobuz, QobuzState::NotConfigured));
     assert!(cfg.bandcamp.is_none());
 }
 
@@ -100,7 +100,7 @@ password = "section-pass"
 "#,
     )
     .unwrap();
-    let q = cfg.qobuz.expect("qobuz");
+    let q = cfg.qobuz.ready().expect("qobuz");
     assert_eq!(q.username, "section@example.com");
     assert_eq!(q.password, "section-pass");
 }
@@ -117,7 +117,7 @@ app_secret = "abc-secret"
 "#,
     )
     .unwrap();
-    let q = cfg.qobuz.expect("qobuz");
+    let q = cfg.qobuz.ready().expect("qobuz");
     assert_eq!(q.app_id.as_deref(), Some("123456789"));
     assert_eq!(q.app_secret.as_deref(), Some("abc-secret"));
 }
@@ -133,7 +133,7 @@ app_secret = "xyz-secret"
 "#,
     )
     .unwrap();
-    let q = cfg.qobuz.expect("qobuz");
+    let q = cfg.qobuz.ready().expect("qobuz");
     assert_eq!(q.app_id.as_deref(), Some("987654321"));
     assert_eq!(q.app_secret.as_deref(), Some("xyz-secret"));
 }
@@ -148,8 +148,31 @@ password = "secret"
 "#,
     )
     .unwrap();
-    // Empty username → qobuz not fully configured
-    assert!(cfg.qobuz.is_none());
+    // Empty username → no Qobuz intent
+    assert!(matches!(cfg.qobuz, QobuzState::NotConfigured));
+}
+
+#[test]
+fn username_without_password_is_incomplete() {
+    let cfg = parse_toml_config(
+        r#"
+[qobuz]
+username = "user@example.com"
+"#,
+    )
+    .unwrap();
+    assert!(matches!(cfg.qobuz, QobuzState::Incomplete));
+}
+
+#[test]
+fn bare_username_without_password_is_incomplete() {
+    let cfg = parse_toml_config(
+        r#"
+username = "user@example.com"
+"#,
+    )
+    .unwrap();
+    assert!(matches!(cfg.qobuz, QobuzState::Incomplete));
 }
 
 #[test]

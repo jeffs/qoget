@@ -86,10 +86,10 @@ async fn run_sync(
 
     let should_run = |svc: models::Service| -> bool { service_filter.is_none_or(|f| f == svc) };
 
-    let has_qobuz = cfg.qobuz.is_some();
     let has_bandcamp = cfg.bandcamp.is_some();
+    let qobuz_configured = cfg.qobuz.is_configured();
 
-    if !has_qobuz && !has_bandcamp {
+    if !qobuz_configured && !has_bandcamp {
         if service_filter.is_some() && service_filter != Some(models::Service::Qobuz) {
             bail!(
                 "Bandcamp is not configured.\n\n\
@@ -111,15 +111,31 @@ async fn run_sync(
 
     if should_run(models::Service::Qobuz) {
         match cfg.qobuz {
-            Some(qobuz_cfg) => {
+            config::QobuzState::Ready(qobuz_cfg) => {
                 eprintln!("Syncing Qobuz...");
                 if let Err(e) = run_qobuz_sync(qobuz_cfg, target_dir, dry_run).await {
                     eprintln!("Qobuz sync failed: {e:#}");
                     any_failure = true;
                 }
             }
-            None if service_filter.is_some() => {
-                // User explicitly requested Qobuz — try prompting for credentials
+            config::QobuzState::Incomplete => {
+                // Username found but password missing — prompt for it
+                match config::prompt_qobuz_credentials() {
+                    Ok(qobuz_cfg) => {
+                        eprintln!("Syncing Qobuz...");
+                        if let Err(e) = run_qobuz_sync(qobuz_cfg, target_dir, dry_run).await {
+                            eprintln!("Qobuz sync failed: {e:#}");
+                            any_failure = true;
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Qobuz sync skipped: {e:#}");
+                        any_failure = true;
+                    }
+                }
+            }
+            config::QobuzState::NotConfigured if service_filter.is_some() => {
+                // User explicitly requested Qobuz but nothing configured
                 match config::prompt_qobuz_credentials() {
                     Ok(qobuz_cfg) => {
                         eprintln!("Syncing Qobuz...");
@@ -131,7 +147,7 @@ async fn run_sync(
                     Err(e) => bail!("Qobuz is not configured: {e:#}"),
                 }
             }
-            None => {}
+            config::QobuzState::NotConfigured => {}
         }
     }
 
@@ -161,13 +177,13 @@ async fn run_sync(
 
     // Hint about unconfigured services (only when no --service filter)
     if service_filter.is_none() {
-        if !has_qobuz && has_bandcamp {
+        if !qobuz_configured && has_bandcamp {
             eprintln!(
                 "\nHint: Qobuz sync is also available. \
                  Set QOBUZ_USERNAME/QOBUZ_PASSWORD or add [qobuz] to config."
             );
         }
-        if !has_bandcamp && has_qobuz {
+        if !has_bandcamp && qobuz_configured {
             eprintln!(
                 "\nHint: Bandcamp sync is also available. \
                  Set BANDCAMP_IDENTITY or add [bandcamp] to config."

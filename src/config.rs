@@ -6,8 +6,17 @@ use std::path::PathBuf;
 // --- Public config types ---
 
 pub struct Config {
-    pub qobuz: Option<QobuzConfig>,
+    pub qobuz: QobuzState,
     pub bandcamp: Option<BandcampConfig>,
+}
+
+pub enum QobuzState {
+    /// Username and password both resolved — ready to sync.
+    Ready(QobuzConfig),
+    /// Username found but password missing — interactive prompt can complete it.
+    Incomplete,
+    /// No username found — Qobuz not configured.
+    NotConfigured,
 }
 
 pub struct QobuzConfig {
@@ -89,10 +98,16 @@ fn bandcamp_identity_from_file(fc: &FileConfig) -> Option<String> {
 
 // --- Resolution (file only, no env vars) ---
 
-fn resolve_qobuz_from_file(fc: &FileConfig) -> Option<QobuzConfig> {
-    Some(QobuzConfig {
-        username: qobuz_username_from_file(fc)?,
-        password: qobuz_password_from_file(fc)?,
+fn resolve_qobuz_from_file(fc: &FileConfig) -> QobuzState {
+    let Some(username) = qobuz_username_from_file(fc) else {
+        return QobuzState::NotConfigured;
+    };
+    let Some(password) = qobuz_password_from_file(fc) else {
+        return QobuzState::Incomplete;
+    };
+    QobuzState::Ready(QobuzConfig {
+        username,
+        password,
         app_id: qobuz_app_id_from_file(fc),
         app_secret: qobuz_app_secret_from_file(fc),
     })
@@ -106,16 +121,22 @@ fn resolve_bandcamp_from_file(fc: &FileConfig) -> Option<BandcampConfig> {
 
 // --- Resolution (with env vars) ---
 
-fn resolve_qobuz(fc: &FileConfig) -> Option<QobuzConfig> {
-    let username = std::env::var("QOBUZ_USERNAME")
+fn resolve_qobuz(fc: &FileConfig) -> QobuzState {
+    let Some(username) = std::env::var("QOBUZ_USERNAME")
         .ok()
         .filter(|s| !s.is_empty())
-        .or_else(|| qobuz_username_from_file(fc))?;
-    let password = std::env::var("QOBUZ_PASSWORD")
+        .or_else(|| qobuz_username_from_file(fc))
+    else {
+        return QobuzState::NotConfigured;
+    };
+    let Some(password) = std::env::var("QOBUZ_PASSWORD")
         .ok()
         .filter(|s| !s.is_empty())
-        .or_else(|| qobuz_password_from_file(fc))?;
-    Some(QobuzConfig {
+        .or_else(|| qobuz_password_from_file(fc))
+    else {
+        return QobuzState::Incomplete;
+    };
+    QobuzState::Ready(QobuzConfig {
         username,
         password,
         app_id: qobuz_app_id_from_file(fc),
@@ -151,6 +172,19 @@ pub fn parse_toml_config(content: &str) -> Result<Config> {
         qobuz: resolve_qobuz_from_file(&fc),
         bandcamp: resolve_bandcamp_from_file(&fc),
     })
+}
+
+impl QobuzState {
+    pub fn ready(self) -> Option<QobuzConfig> {
+        match self {
+            QobuzState::Ready(cfg) => Some(cfg),
+            _ => None,
+        }
+    }
+
+    pub fn is_configured(&self) -> bool {
+        !matches!(self, QobuzState::NotConfigured)
+    }
 }
 
 /// Load config from file and env vars.
